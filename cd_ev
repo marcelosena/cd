@@ -1,0 +1,2604 @@
+
+include "Z:\ASSET\ECO\LATAM\MX\Codes\auxfuns.prg"
+wfuse "Z:\ASSET\ECO\Marcelo\Financial VAR\financial_var.wf1"
+
+pageselect monthly
+smpl @all
+
+series gdp_us_pcy = @pcy(USECON::gdph)
+series infl_us_pcy = USECON::PCUY
+series unemp_us = USECON::LR
+series sp_pcy = @pcy(usecon::SP500)
+series sp = usecon::SP500
+
+series shadow_us = USECON::FFEDSHDW
+series nom_us = USECON::FFEDTARE
+series infexp1y_us = USECON::CINF1
+series infexp5y_us = USECON::CINF5
+
+series nom_shadow_us = nom_us
+smpl 2008M1 @last
+nom_shadow_us = @recode(nom_shadow_us<0.15,shadow_us,nom_shadow_us)
+smpl @all
+nom_shadow_us.ipolate nom_shadow_us_ip
+
+
+pageselect daily
+smpl @all
+
+series usd_tw = DAILY::FXTWM
+
+fetch RISCO::vix
+fetch RISCO::cds5_brl
+
+series sw1y_br = INTDAILY::R223W1
+series sw1y_us = DAILY::FCM1
+series sw5y_us = DAILY::FCM5
+series sw10y_us = DAILY::FCM10
+
+series d_riskon = 0
+series d_riskoff = 0
+series d_hawk = 0
+series d_strange = 0
+series d_change = @recode(@nrnd>0,1,0)
+d_riskon = @recode(d(sw10y_us)>0,@recode(d(brlusd)<0,1,0),0)
+d_riskoff = @recode(d(sw10y_us)<0,@recode(d(brlusd)>0,1,0),0)
+d_hawk = @recode(d(sw10y_us)>0,@recode(d(brlusd)>0,1,0),0)
+d_strange = @recode(d(sw10y_us)<0,@recode(d(brlusd)<0,1,0),0)
+
+!freq = 360
+
+for %var d_riskon d_riskoff d_hawk d_strange d_change
+                series {%var}_freq = @mav({%var},!freq)
+                smpl @now+1 @last
+                {%var}_freq = NA
+                smpl @all
+next
+
+series infexp_br = INTDAILY::P223ICA
+copy(c=r) monthly\INFEXP1y_US *
+copy(c=r) monthly\INFEXP5y_US *
+
+series brlusd = INTDAILY::X223USM
+
+series rr_br = sw1y_br - infexp_br
+series rr_us = sw1y_us - INFEXP1y_US
+series rr10y_us = sw10y_us - INFEXP5y_US
+
+series brlusd_pc = @pc(brlusd)
+series sw10y_us_d = d(sw10y_us)
+
+'Daily quantile regressions
+smpl 2003 @last
+equation qt_brlusd.qreg(quant=0.9, k=e, ngrid=100) brlusd_pc sw10y_us_d c
+
+pageselect monthly
+smpl @all
+
+series us_gdp = usecon::gdp
+series us_cpi = usecon::pcun
+series us_gdp_pcy = @pcy(usecon::gdp)
+series us_inf_pcy = usecon::pcuy
+
+!freq = 12
+series us_gdp_freq = @movav(us_gdp,!freq)
+series us_inf_freq = @movav(us_cpi,!freq)
+
+series corr_bc = @movcor(us_gdp_pcy,us_inf_pcy,24)
+
+copy(c=l) daily\SW10Y_US *
+copy(c=l) daily\SW1Y_US *
+copy(c=l) daily\sw5y_us *
+
+series cr_10s1s = SW10Y_US - SW1Y_US
+series cr_5s1s = SW5Y_US - SW1Y_US
+
+pageselect weekly
+smpl @all
+
+copy( c=r) monthly\NOM_SHADOW_US_IP *
+
+copy(c=a) daily\vix *
+copy(c=a) daily\usd_tw *
+copy(c=a) daily\sw1y_br *
+copy(c=a) daily\sw1y_us *
+copy(c=a) daily\sw10y_us *
+copy(c=a) daily\rr_US *
+copy(c=a) daily\rr10y_US *
+copy(c=a) daily\rr_BR *
+copy(c=a) daily\brlusd *
+copy(c=a) daily\cds5_brl *
+
+!freq = 6
+
+series d_10y = d(sw10y_us)
+series d_10y_freq=  @movsum(d_10y,!freq)
+series d_abs_10y = abs(d(sw10y_us))
+
+series brlusd_freq = ((brlusd-brlusd(-!freq))/brlusd)*100
+series brlusd_freq_lead = brlusd_freq(+!freq)
+brlusd_freq = brlusd_freq_lead
+
+'Event Study: velcodidade de mudanças como variável de estado
+pageselect undated
+
+series brlusd_dep
+series brlusd_dep_ub
+series brlusd_dep_lb
+series nObsProp
+series d10y 
+series d10y_mov
+series nObsAbs
+
+!j = 1
+for !i = 0 to 1 step 0.05
+                pageselect weekly
+                smpl if D_10Y_freq > !i and @year > 2002
+                
+                !meanDep = @mean(brlusd_freq)
+                !stdDep = @stdev(brlusd_freq)
+                !mean10y = @mean(d_10y_freq)
+                !nObs = @obssmpl
+                smpl 2002 2017M7           
+                !nObsTot = @obssmpl
+                
+                pageselect undated
+                smpl !j !j
+                brlusd_dep = !meanDep
+                brlusd_dep_ub = !meanDep + 2*!stdDep
+                brlusd_dep_lb = !meanDep - 2*!stdDep               
+                d10y = !mean10y
+                nObsProp = !nObs/!nObsTot
+                d10y_mov = !i   
+                nObsAbs = !nObs
+                
+!j = !j+1
+next
+
+stop
+
+pageselect quarterly
+smpl @all
+series d_2008_q3 = 0
+d_2008_q3 =@recode(@year=2008,@recode(@quarter=3,1,0),0)
+series d_2008_q4 = 0
+d_2008_q4 =@recode(@year=2008,@recode(@quarter=4,1,0),0)
+
+pageselect weekly
+smpl @all
+
+copy(c=r, overwrite) quarterly\D_2008_Q4 *
+copy(c=r, overwrite) quarterly\D_2008_Q3 *
+
+series rr_us_spread = RR10Y_US - RR_US
+series us_spread_10shad = SW10Y_US  - NOM_SHADOW_US_IP 
+
+
+'Local Event VAR
+
+'Taper Tantrum
+%dateShock = "5/06/2013"
+%lastDate = "8/26/2013"
+
+'Risk-Off
+%dateShock = "3/05/2012"
+%lastDate = "6/25/2012"
+'
+''Risk-Off
+'%dateShock = "7/11/2011"
+'%lastDate = "10/31/2011"
+
+series rr_meas = SW10Y_US
+smpl %dateShock %lastDate
+var finVar.ls 1 1 @pc(brlusd) d(sw1y_br)  @ vix @pc(usd_tw) d(rr_meas) d(rr_meas(-1)) @pc(cds5_brl)  'D_2008_Q4 D_2008_Q3
+
+stop
+
+'call choleskiMat(5)
+'smpl 2005 @last
+'var finVar.ls 1 2 d(sw1y_br) @pc(cds5_brl) d(rr_meas) @pc(usd_tw) @pc(brlusd) @ c D_2008_Q4 D_2008_Q3
+'finVar.svar(rtype=patsr, aname=id_choleski_a_tri, bname=id_choleski_b, f0=c)
+
+'Windows
+
+'Taper Tantrum
+'%dateShock = "5/06/2013"
+'%lastDate = "8/26/2013"
+
+'Current Sample
+'%dateShock = "6/26/2017"
+'%lastDate = "6/25/2018"
+
+smpl @all
+series cds5_brl_bkp = cds5_brl
+series rr_meas_bkp  = rr_meas
+series usd_tw_bkp = usd_tw
+series vix_bkp = vix
+
+%exoList = "cds5_brl rr_meas usd_tw vix"
+
+'No Shock
+for %var {%exoList}
+                
+                smpl %dateShock %dateShock
+                !ctValue = @max({%var})
+                smpl %dateShock %lastDate
+                series {%var}_noShock = !ctValue
+                {%var} = !ctValue
+
+next
+finVar.forecast f1
+
+'Actual Sample
+for %var {%exoList}
+
+                smpl @all
+                {%var} = {%var}_bkp
+
+next
+smpl %dateShock %lastDate
+finVar.forecast f2
+
+'VAR Forecasts vs Actual
+
+!windowEst = 150
+smpl {%dateShock}-!windowEst {%lastDate}
+'var finVar.ls 1 1 @pc(brlusd) d(sw1y_br) @ vix @pc(usd_tw) d(rr_meas) d(rr_meas(-1)) @pc(cds5_brl)  
+var finVar.ls 1 1 @pc(brlusd) d(sw1y_br)  vix @pc(usd_tw) d(rr_meas) @pc(cds5_brl) @ c
+
+'Var Forecast
+
+smpl %dateShock %lastDate
+finVar.forecast f3
+
+'call linConv(rr_meas,2.6,52)
+'call linConv(CDS5_BRL,175,52)
+'smpl @all
+'series cds5_brl_f1 = cds5_brl_bkp
+'series rr_meas_f1 = rr_meas_bkp
+'smpl %dateShock %lastDate
+'cds5_brl_f1 = cds5_brl_cv
+'cds5_brl = CDS5_BRL_cv
+'rr_meas_f1 = rr_meas_cv
+'rr_meas = rr_meas_cv
+'smpl %dateShock %lastDate
+'finVar.forecast f1
+'
+'smpl @all
+'cds5_brl = cds5_brl_bkp
+'rr_meas  = rr_meas_bkp
+'cds5_brl = cds5_brl_bkp
+'smpl %dateShock %lastDate
+'call linConv(rr_meas,250,52)
+'cds5_brl_f2 = cds5_brl_cv
+'cds5_brl = CDS5_BRL_cv
+'finVar.forecast f2
+
+
+
+'Choque Incerteza SVAR Brasil
+
+include "\\fswcorp\WMSASSET\ASSET\ECO\LATAM\MX\Codes\auxfuns.prg"
+
+wfuse "Z:\ASSET\ECO\Marcelo\SVAR Brasil\svar_brasil.wf1"
+
+pageselect monthly
+smpl @all
+
+series gdp = EMERGELA::S273NGPC
+series juros = EMERGELA::N223RD 'target rate
+series juros_mkt = EMERGELA::C223RO 'market rate
+
+series brlusd = EMERGELA::N223XUSV
+series ipca = EMERGELA::H223PCA
+series hiato = FCT::QPIBHTFPF 
+
+fetch(d=SCIT) icitsa
+fetch(d=FCT) brlf selicf ipcaf
+
+'Uncertainty Index
+import "Z:\ASSET\ECO\Marcelo\SVAR Brasil\brazil_epu.xlsx" range=Sheet1 colhead=1 na="#N/A" @freq M @id @date(date) @destid @date @smpl @all
+
+series br_epu = BRAZIL_NEWS_BASED_EPU
+
+'Completa para o mês de Maio o índice de incerteza
+
+'smpl 2017M5 2017M5
+'br_epu = 676.9550170898438 'March 2017 Level
+'smpl @all
+
+series ibov = EMERGELA::C223KN
+series ibov_pc = @pc(ibov)
+series ibov_movvol = @movstdev(ibov_pc,6)
+
+!freq = 12
+%varEndo = "ipcaf brlf"
+for %var {%varEndo}
+                call pctm({%var},!freq)
+                %serName = %var + "_" + @str(!freq) + "m"
+                %varEndoTr = %varEndoTr + " " + %serName
+next
+
+%cpiStr = "ipca_" + @str(!freq) + "m"
+%nerStr = "brlusd_" + @str(!freq) + "m"
+
+series d_crisis = @recode(@year=2008,@recode(@month>6,1,0),0)
+
+delete(noerr) fig_*
+
+series unc_meas = br_epu
+!shockAmp = 0.68
+
+smpl @all
+series d_unc_meas = d(unc_meas)
+!maxDelta = @max(@abs(d_unc_meas))
+
+%svarName = "svar_br"
+call choleskiMat(5)
+smpl 2003 2017M4
+series int_measure = selicf
+var {%svarName}.ls 1 2 {%nerStr} unc_meas int_measure {%cpiStr} hiato @ c 
+{%svarName}.svar(rtype=patsr, aname=id_choleski_a_tri, bname=id_choleski_b, f0=c)
+delete(noerr) FIGUSEXOG2* irf
+!shockNum = 2
+freeze(fig_cpi) {%svarName}.impulse(48,imp=struct, se=a) {%cpiStr} @ !shockNum
+freeze(fig_ht) {%svarName}.impulse(48,imp=struct, se=a,matbys=irf) hiato @ !shockNum
+freeze(fig_ner) {%svarName}.impulse(48,imp=struct, se=a) {%nerStr} @ !shockNum
+freeze(fig_int) {%svarName}.impulse(48,imp=struct, se=a) int_measure @ !shockNum
+freeze(fig_epu) {%svarName}.impulse(48,imp=struct, se=a) unc_meas @ !shockNum
+
+vector irf_hiato_se = @columnextract(irf_se,10)
+vector irf_hiato = @columnextract(irf,10)
+irf_hiato = !shockAmp*irf_hiato 'scaling shock
+irf_hiato_se = @abs(!shockAmp)*irf_hiato_se
+vector irf_hiato_ub
+vector irf_hiato_lb
+irf_hiato_ub = irf_hiato + 2*irf_hiato_se
+irf_hiato_lb = irf_hiato - 2*irf_hiato_se
+matrix irf_scaled_plot = @hcat(irf_hiato_ub,irf_hiato_lb)
+irf_scaled_plot = @hcat(irf_hiato,irf_scaled_plot)
+
+stop
+
+'Variável Exógena
+%dateShock = "2017M5"
+%lastDate = "2017M12"
+'Shock in exogenous variable
+var {%svarName}_exo.ls 1 2 hiato {%cpiStr} int_measure {%nerStr} @ unc_meas unc_meas(-1) c 
+!uncMeasStdev = @stdev(unc_meas)
+
+'Scenarios
+
+'Baseline - incerteza em abril = incerteza em maio mais convergencia até o final do ano
+smpl {%dateShock}-9 {%dateShock}-9
+!convLevel = @max(unc_meas)
+smpl %dateShock %dateShock
+unc_meas = unc_meas(-1)
+call linConv(unc_meas,!convLevel,7)
+smpl {%dateShock}+1 @last
+unc_meas = unc_meas_cv
+smpl @all
+series unc_meas_s1 = unc_meas
+smpl %dateShock %lastDate
+{%svarName}_exo.forecast f1
+
+'Choque - incerteza em maio = abril + std mais convergencia até o final do ano
+smpl %dateShock %dateShock
+unc_meas = unc_meas(-1) + !shockAmp*!uncMeasStdev
+call linConv(unc_meas,!convLevel,7)
+smpl {%dateShock}+1 %lastDate
+unc_meas = unc_meas_cv
+smpl @all
+series unc_meas_s2 = unc_meas
+smpl %dateShock %lastDate
+{%svarName}_exo.forecast f2
+smpl @all
+
+'Choque - incerteza em maio = abril + std mais convergencia devagar
+smpl %dateShock %dateShock
+unc_meas = unc_meas(-1) + !shockAmp*!uncMeasStdev
+call linConv(unc_meas,!convLevel,14)
+smpl {%dateShock}+1 %lastDate
+unc_meas = unc_meas_cv
+smpl @all
+series unc_meas_s3 = unc_meas
+smpl %dateShock %lastDate
+{%svarName}_exo.forecast f3
+smpl @all
+
+delete(noerr) _scen*
+delete(noerr) _irf_exog
+
+group _scen_cpi {%cpiStr}_f3 {%cpiStr}_f2 {%cpiStr}_f1
+group _scen_ner {%nerStr}_f3 {%nerStr}_f2 {%nerStr}_f1
+group _scen_hiato hiato_f3 hiato_f2 hiato_f1
+group _scen_int_measure int_measure_f3 int_measure_f2 int_measure_f1
+
+smpl @first %lastDate
+series _scen_ner_lev_f1 = brlf
+series _scen_ner_lev_f2 = brlf
+series _scen_ner_lev_f3 = brlf
+smpl %dateShock %lastDate
+_scen_ner_lev_f1 = brlf(-!freq)*(1+{%nerStr}_f1/100)
+_scen_ner_lev_f2 = brlf(-!freq)*(1+{%nerStr}_f2/100)
+_scen_ner_lev_f3 = brlf(-!freq)*(1+{%nerStr}_f3/100)
+smpl @all
+
+smpl {%dateShock}-1 %lastDate
+freeze(_scen_grph_cpi) _scen_cpi.line
+freeze(_scen_grph_ner) _scen_ner.line
+freeze(_scen_grph_hiato) _scen_hiato.line
+freeze(_scen_grph_int_measure) _scen_int_measure.line
+smpl @all
+series _irf_exog_cpi = {%cpiStr}_f2 - {%cpiStr}_f1
+series _irf_exog_ner = {%nerStr}_f2 - {%nerStr}_f1
+series _irf_exog_hiato = hiato_f2 - hiato_f1
+series _irf_exog_int_measure = int_measure_f2 - int_measure_f1
+
+smpl %dateShock %lastDate
+
+
+'VAR com Real Rates US
+
+include "Z:\ASSET\ECO\LATAM\MX\Codes\auxfuns.prg"
+
+pageselect monthly
+smpl @all
+
+series gdp_monthly = EMERGELA::S223GVI
+series juros = EMERGELA::N223RD 'target rate
+series juros_mkt = EMERGELA::C223RO 'market rate
+
+series brlusd = EMERGELA::N223XUSV
+series ipca = EMERGELA::H223PCA
+series hiato = FCT::QPIBHTFPF 
+
+fetch(c=a) RISCO::cds5_brl
+
+!freq = 12
+%varEndo = "ipca brlusd gdp_monthly"
+for %var {%varEndo}
+                call pctm({%var},!freq)
+                %serName = %var + "_" + @str(!freq) + "m"
+                %varEndoTr = %varEndoTr + " " + %serName
+next
+
+%cpiStr = "ipca_" + @str(!freq) + "m"
+%nerStr = "brlusd_" + @str(!freq) + "m"
+%gdpStr = "gdp_monthly_" + @str(!freq) + "m"
+
+series d_crisis = @recode(@year=2008,@recode(@month>6,1,0),0)
+
+'VAR com Variável Exógena
+
+series ff = USECON::FFEDE
+series us_cpi_pcy = @pcy(USECON::PCUN)
+series us_rr = ff - us_cpi_pcy
+
+%svarName = "var_br"
+%dateShock = "2017M5"
+%lastDate = "2018M5"
+
+series int_measure = juros - {%cpiStr} 'juros real
+'Shock in exogenous variable
+delete(noerr) estSmpl
+sample estSmpl 2003 @last
+smpl estSmpl
+
+var {%svarName}_exo.ls 1 2 {%nerStr} CDS5_BRL int_measure us_rr @ c 
+
+'Structural Decomposition
+call choleskIMat(4)
+{%svarName}_exo.svar(rtype=patsr, aname=id_choleski_a_tri, bname=id_choleski_b, f0=c)
+
+stop
+
+'Scenarios
+smpl @all
+''Baseline
+series us_rr_bkp = us_rr
+call linConv(us_rr,-0.5,12)
+us_rr = us_rr_cv
+series us_rr_low = us_rr_cv
+smpl %dateShock %lastDate
+{%svarName}_exo.forecast f1
+smpl @all
+us_rr = us_rr_bkp
+call linConv(us_rr,0,12)
+us_rr = us_rr_cv
+series us_rr_mid = us_rr_cv
+smpl %dateShock %lastDate
+{%svarName}_exo.forecast f2
+smpl @all
+us_rr = us_rr_bkp
+call linConv(us_rr,0.5,12)
+series us_rr_high = us_rr_cv
+us_rr = us_rr_cv
+smpl %dateShock %lastDate
+{%svarName}_exo.forecast f3
+
+smpl @all
+
+_sys_manual.ls
+_sys_manual.makemodel(_sys_model)
+
+%fList = "f1 f2 f3"
+!j=1
+'High Scenario
+for %scen low mid high
+
+                %fName = @word(%fList,!j)
+                !j = !j + 1
+
+                us_rr = us_rr_{%scen}
+                smpl 2017M5 2018M5
+                _sys_model.solve
+                %modelEndo = _sys_model.@endoglist
+                smpl @all
+                for %var {%modelEndo}
+                                series {%var}_{%fName} = {%var}_0
+                next
+                delete(noerr) *_0
+
+next
+
+'Adaptando Frequencias e gerando forecasts finais
+'Convertendo delta frequencias
+%foreList = "f1 f2 f3"
+for %f {%foreList}
+                call freqConv({%cpiStr}_{%f},!freq,12,ipca)
+                call freqConv({%nerStr}_{%f},!freq,12,brlusd)
+                call freqConv({%gdpStr}_{%f},!freq,12,gdp_monthly)
+next
+
+%varList = %cpiStr + " " + %gdpStr + " " + %nerStr
+smpl %dateShock %lastDate
+for %var {%varList}
+
+                'Gerando Deltas do Low
+                series fq_{%var}_md = {%var}_f2_12fq - {%var}_f1_12fq
+                series fq_{%var}_hd = {%var}_f3_12fq - {%var}_f1_12fq
+next
+
+%varList = "int_measure"
+for %var {%varList}
+
+                'Gerando Deltas do Low
+                series {%var}_md = {%var}_f2 - {%var}_f1
+                series {%var}_hd = {%var}_f3 - {%var}_f1
+
+next
+
+smpl @all
+series brlusd_movvol = @movvar(brlusd,24)
+
+include "Z:\ASSET\ECO\LATAM\MX\Codes\auxfuns.prg"
+
+smpl @all
+
+series gdp = USECON::GDPH
+series inf = USECON::PCU
+series int_rate = USECON::ffed
+
+'vector(100) gap_coef
+'vector(100) inf_lead_coef
+'vector(100) inf_lag_coef
+'vector(100) cons_coef
+'svector(100) ini_date
+'svector(100) last_date
+
+series gap_coef_ser = NA
+
+!freq = 12
+call pctm(inf,!freq)
+call pctm(gdp,!freq)
+
+%infStr = "inf_" + @str(!freq) + "m"
+%gdpStr = "inf_" + @str(!freq) + "m"
+
+series inf_lead = {%infStr}(+1)
+series inf_lag = {%infStr}(-1)
+
+gdp.hpf gdp_trend @ gdp_cycle
+
+series gdp_gap = (gdp - gdp_trend)/gdp_trend
+
+!window = 100
+for !j = 1 to 230
+                smpl @first+!j-1 @first+!window+!j-1
+                equation mov_phillips.gmm(method=converge, instwgt=hac) {%infStr} inf_lead inf_lag gdp_gap c @ inf(-2) inf(-3) inf(-4) gdp_gap(-1) gdp_gap(-2) gdp_gap(-3) int_rate(-1) int_rate(-2) int_rate(-3)
+                
+'               inf_lead_coef(!j) = c(1)
+'               inf_lag_coef(!j) = c(2)
+'               gap_coef(!j) = c(3)
+'               cons_coef(!j) = c(4)
+'               last_date(!j) = @otods(!window)
+
+smpl @first+!window+!j-1 @first+!window+!j-1
+gap_coef_ser = c(3) 
+
+next
+
+smpl @all
+
+
+
+
+
+subroutine update_MA(string %infSet)
+
+if @isobject("_projVars") then
+else
+                table(@wcount(%infSet),2) _projVars
+                _projVars(1,1) = "Variable"
+                _projVars(1,2) = "=1 if Projected Predictor"
+endif
+
+'Determines last non empty line of Table
+!counter = 1
+while _projVars(!counter,1) <> ""
+                !counter = !counter + 1
+wend
+
+for %strTr {%infSet}
+                                
+                                'Verificar se temos o dado para o mês da projeção.
+                                call last_non_na({%strTr})
+                                _projVars(!counter,1) = %strTr
+                                'Se o dado não saiu, usamos uma média móvel.
+                                if %data_proj <> last_non_na then
+                                _projVars(!counter,2)  = 1
+                                call projPredictor_MA(%strTr)   
+                else
+                                _projVars(!counter,2)  = 0
+                                endif
+
+                                !counter = !counter + 1
+                                                
+next
+
+endsub
+
+subroutine update_RE(string %infSet)
+
+if @isobject("_projVars") then
+else
+                table(@wcount(%infSet),2) _projVars
+                _projVars(1,1) = "Variable"
+                _projVars(1,2) = "=1 if Projected Predictor"
+endif
+
+'Determines last non empty line of Table
+!counter = 1
+while _projVars(!counter,1) <> ""
+                !counter = !counter + 1
+wend
+
+for %strTr {%infSet}
+                                
+                                'Verificar se temos o dado para o mês da projeção.
+                                call last_non_na({%strTr})
+                                _projVars(!counter,1) = %strTr
+                                'Se o dado não saiu, usamos uma média móvel.
+                                if %data_proj <> last_non_na then
+                                _projVars(!counter,2)  = 1
+                                call projPredictor_RE(%strTr)      
+                else
+                                _projVars(!counter,2)  = 0
+                                endif
+
+                                !counter = !counter + 1
+                                                
+next
+
+endsub
+
+subroutine last_non_na(series x)
+
+                %currsmpl = @pagesmpl
+                smpl @all
+                series temp = @recode(x<>na,@trend,na)+1 
+                scalar first = @min(temp)
+                scalar last = @max(temp)
+                %firstdate=@otod(first)
+                %lastdate=@otod(last)
+                string last_non_na = %lastdate
+                scalar last_non_na_sc = @dateval(%lastdate)
+                smpl %currsmpl
+
+endsub
+
+subroutine projPredictor_MA(string %serStr)
+
+                %currsmpl = @pagesmpl
+                series aux_pcy = @pcy({%serStr})
+                !avg = @mean(aux_pcy)
+                smpl %data_proj %data_proj
+                {%serStr} = {%serStr}(-12)*(1+!avg/100)
+                smpl %currsmpl
+
+endsub
+
+subroutine projPredictor_RE(string %serStr)
+                
+                %currsmpl = @pagesmpl
+                smpl %data_Proj %data_Proj
+                {%serStr} = {%serStr}(-1)
+                smpl %currsmpl
+
+endsub
+
+subroutine update_Lag(string %infSet)
+
+delete(noerr) _projVars
+
+table(@wcount(%infSet),2) _projVars
+_projVars(1,1) = "Variable"
+_projVars(1,2) = "=1 if Projected Predictor"
+
+'Determines last non empty line of Table
+!counter = 1
+while _projVars(!counter,1) <> ""
+                !counter = !counter + 1
+wend
+
+for %strTr {%infSet}
+                                
+                                'Verificar se temos o dado para o mês da projeção.
+                                call last_non_na({%strTr})
+                                _projVars(!counter,1) = %strTr
+                                'Se o dado não saiu, usamos uma média móvel.
+                                if %data_proj <> last_non_na then
+                                _projVars(!counter,2)  = 1
+                                call projPredictor_Lag(%strTr)    
+                else
+                                _projVars(!counter,2)  = 0
+                                endif
+
+                                !counter = !counter + 1
+                                                
+next
+
+endsub
+
+subroutine projPredictor_Lag(string %serStr)
+                
+                %currsmpl = @pagesmpl
+                smpl @all
+                series {%serStr}_aux = {%serStr}
+                {%serStr} = {%serStr}_aux(-1)
+                delete {%serStr}_aux 
+                smpl %currsmpl
+
+endsub
+
+'Post Forecast Tracking
+                include "\\fswcorp\wmsasset\asset\eco\Conjuntura\EViews\WFSUB\influence_best.prg" 
+
+if @isobject("forecast_all_oos") then
+
+                smpl @all
+                series oosAll = forecast_all_oos
+                series oosBest = forecast_best_oos
+                series oosSeek = forecast_seek_oos
+                call histogramBest
+                call viewInfluenceBest
+
+!dateProjVal = @dateval(%data_proj)
+delete(noerr) _tablePred
+table _tablePred
+!line = 1
+
+'Copying predictors values
+for %var {%transfList}
+                %transfStr = %transformation + "(" + %var + ")"
+                series {%var}_transf = {%transfStr}
+                %lastDateInf = @otod(@ilast({%var}_transf))
+                !lastDateInfVal = @dateval(%lastDateInf)
+                !diffLag = @datediff(!dateProjVal,!lastDateInfVal,"mm")
+                %diffLagStr = @str(!diffLag)
+                if !diffLag > 0 then
+                                series {%var}_transf_l{%diffLagStr} = {%var}(-!diffLag)
+                                delete {%var}_transf
+                                series {%var}_transf = {%var}_transf_l{%diffLagStr}
+                                delete {%var}_transf_l{%diffLagStr}
+                endif
+                _tablePred(!line,1) = %var
+                smpl %data_proj %data_proj
+                !predVal = @max({%var}_transf)
+                _tablePred(!line,2) = !predVal
+                !line = !line + 1
+                smpl @all
+next
+
+for %var {%levelList}
+                %lastDateInf = @otod(@ilast({%var}))
+                !lastDateInfVal = @dateval(%lastDateInf)
+                !diffLag = @datediff(!dateProjVal,!lastDateInfVal,"mm")
+                %diffLagStr = @str(!diffLag)
+                if !diffLag > 0 then
+                                series {%var}_l{%diffLagStr} = {%var}(-!diffLag)
+                                delete {%var}
+                                series {%var} = {%var}_l{%diffLagStr}
+                                delete {%var}_l{%diffLagStr}
+                endif
+                _tablePred(!line,1) = %var
+                smpl %data_proj %data_proj
+                !predVal = @max({%var})
+                _tablePred(!line,2) = !predVal
+                !line = !line + 1
+                smpl @all
+next
+
+                freeze(finalres_oos,mode=overwrite) finalresults_oos
+
+                %savePath = %filePath + "Auxiliar\finalres_oos"
+                finalres_oos.save %savePath
+
+                '%savePath = %filePath + "Auxiliar\table_results"
+                'table_results.save %savePath
+
+                %savePath = %filePath + "Auxiliar\ghistall"
+                ghistall.save(t=png, w=1000, u=pixels) %savePath
+
+                'Calcula Std Dev do Forecast 1 Ahead Filt
+                'freeze(stdev_best,mode=overwrite) forecasts1ahead.stats
+                '%savePath = %filePath + "Auxiliar\stdev_best"
+                'stdev_best.save %savePath
+
+                'Saves indicator function of projected variables
+                %savePath = %filePath + "Auxiliar\_projvars"
+                _projvars.save(t=csv) %savePath
+
+                'Saves indicator function of projected variables
+                if @isobject("_projvars_m1") = 1 then
+                                %savePath = %filePath + "Auxiliar\_projvars_m1"
+                                _projvars_m1.save(t=csv) %savePath
+                endif
+
+                %savePath = %filePath + "Auxiliar\predictors"
+                _tablepred.save(t=csv) %savePath
+
+endif
+'Apaga as equações aa* para reduzir tamanho do arquivo. Só apagar APÓS rodar a rotina de influência.
+copy FORECAST_BEST FORECAST_BEST_VAL
+copy FORECAST_SEEK FORECAST_SEEK_VAL
+delete(noerr) aa_eq* eqm* erro* *aaaaa permutations* actual* baseoos* bestgroup* BESTGROUPFORECAST* FBEST* FCTSEEK* FRCTAA_EQ* PONDEQ* SEEK_OOS* SEEK_OOS_BASE* SERAA_EQ* VPVAL*
+'Tirar o bando de janela que abre depois da rotina
+close @objects
+
+string _lastProj = %data_proj
+if @isobject("_vtgCount") = 0 then
+                scalar _vtgCount = 0
+endif
+scalar _vtgCount = _vtgCount + 1
+
+%vtgStr = @str(_vtgCount)
+%foreNameAll = %name + "_trkAll" + %data_proj + "_" + %vtgStr
+%foreNameBest = %name + "_trkBest" + %data_proj + "_" + %vtgStr
+%foreNameSeek = %name + "_trkSeek" + %data_proj + "_" + %vtgStr
+%foreNameCb = %name + "_trkCb" + %data_proj + "_" + %vtgStr
+
+%iamForeSub = %name + "_fore"
+series {%iamForeSub}_All = MX_TRK::{%iamForeSub}_All
+series {%iamForeSub}_Best = MX_TRK::{%iamForeSub}_Best 
+series {%iamForeSub}_Seek  = MX_TRK::{%iamForeSub}_Seek 
+
+smpl %data_proj %data_proj
+scalar {%foreNameAll} = @max(forecast_all)
+scalar {%foreNameBest} = @max(forecast_best_val)
+scalar {%foreNameSeek} = @max(forecast_seek_val)
+{%iamForeSub}_All = @max(forecast_All)
+{%iamForeSub}_Best = @max(forecast_Best_val)
+{%iamForeSub}_Seek = @max(forecast_seek_val)
+scalar {%foreNameCb} = 0.5*{%foreNameAll} + 0.5*{%foreNameBest}
+
+smpl @all
+
+store(d=MX_TRK,o) {%foreNameAll} {%foreNameBest} {%foreNameSeek} {%foreNameCb} {%iamForeSub}_All {%iamForeSub}_Best {%iamForeSub}_Seek
+
+'Saving Date
+%strDate = "_date_vtg" + %vtgStr
+
+string {%strDate} = @strnow("yyyy-mm-dd")
+%datesListVtg = @wlookup("_date_vtg*")
+!nMonTrack = _montrackbest.@obs+1
+'Determines Last Date
+!numVtg = -1
+for %dateVtg {%datesListVtg}
+                !posNum = @instr(%dateVtg,"VTG")
+                %numStr = @right(%dateVtg,@len(%dateVtg)-!posNum-2)
+                !numVtgTest = @val(%numStr)
+                if !numVtgTest > !numVtg then
+                                !numVtg = !numVtgTest
+                endif
+next
+
+%datesListVtg = "" 
+for !j = !nMonTrack to 1 step -1
+                %numStr = @str(!numVtg-!j+1)
+                %datesListVtg = %datesListVtg + " " + "_date_vtg" + %numStr
+next
+
+%datesListMonTrack = ""
+for %dateVar {%datesListVtg}
+                %datesListMonTrack = %datesListMonTrack + " " + {%dateVar}
+next
+
+'Monthly Track Evolution
+%methodsList = "all best seek"
+%methodGroup = ""
+%trkList = %name + "_trk*"
+%delTrkList = @wlookup(%trkList)
+
+delete(noerr) {%delTrkList}
+for %method {%methodsList}
+                %fetchNames = %name + "_trk" + %method + %data_proj
+                delete(noerr) {%fetchNames}*
+                fetch(m) MX_TRK::{%fetchNames}*
+                %methodLookup = %name + "_trk" + %method + %data_proj + "*"
+
+                %trkMonListAux = @wlookup(%methodLookup)
+
+                %trkMonList = "" 
+                %trkLookup = %name + "_trk" + %method + %data_proj + "*"
+                fetch MX_TRK::{%trkLookup}
+                %trkScalarList = @wlookup(%trkLookup)
+                for !j = !nMonTrack to 1 step -1
+                                %scalarVtgStr = @word(%trkScalarList,!j)
+                                %trkMonList = %trkMonList + " " + %scalarVtgStr
+                next
+
+                %methodMonName = "_monTrack" + %method
+                call scalarSeries(%trkMonList,%methodMonName)
+                %methodGroup = %methodGroup + " " + %methodMonName
+next
+call deleteIfExists("_methodsMonTrack")
+group _methodsMonTrack {%methodGroup}
+
+call deleteIfExists("_monTrackFr")
+freeze(_monTrackFr) _methodsMonTrack.line
+%titleGr = "IAM Monthly Tracking " + %data_proj + ": " +  %titleGen
+_monTrackFr.addtext(t) %titleGr
+'Setting Dates
+_monTrackFr.setobslabel(1) {%datesListMonTrack}
+_monTrackFr.setelem(1) legend(All) linewidth(4)
+_monTrackFr.setelem(2) legend(Best) linewidth(4)
+_monTrackFr.setelem(3) legend(Seek) linewidth(4)
+_montrackfr.setfont legend(Arial,8,-b,-i,-u,-s)
+
+'Out-Of-Sample Backtesting - IAM
+
+delete(noerr) _oosBkTest
+'call deleteIfExists("_oosBkTest")
+
+%iamFore = "_iamfore_" + %name
+
+'To do: se não tiver, criar série
+
+fetch MX_TRK::{%iamFore}
+'series {%iamFore} = MX_TRK::{%iamFore}
+
+smpl %data_proj %data_proj
+fetch MX_TRK::{%foreNameCb}
+{%iamFore} = {%foreNameCb}
+smpl @all
+
+store(d=MX_TRK,o) {%iamFore}
+
+%firstDateFore = @otod(@ifirst({%iamFore}))
+%lastDateFore = @otod(@ilast({%iamFore}))
+%bbgSurvStr = %name + "_bbgsurv"
+%bbgSurvStrCurr = %name + "_bbgsurv_curr"
+series _tp_bbgSurv = MX_TRK::{%bbgSurvStr}
+smpl %data_proj %data_proj
+!testNA = @max(_tp_bbgsurv)
+!testNA = @isna(!testNA)
+if !testNA == 1 then
+                fetch(m) MX_TRK::{%bbgSurvStrCurr}*
+                _tp_bbgSurv =  {%bbgSurvStrCurr}
+                smpl @all
+                series {%bbgSurvStr} =  _tp_bbgSurv
+                store(d=MX_TRK) {%bbgSurvStr}
+endif
+smpl %firstDateFore %lastDateFore
+group _tp_oosGr {%depVar}_fore {%bbgSurvStr} {%iamFore}
+freeze(_oosBkTest)  _tp_oosGr.line
+%titleOOS = "IAM Tracking " + %titleGen + ": Out-of-Sample Backtesting"
+_oosBkTest.addtext(t) %titleOOS
+_oosbktest.setelem(1) legend({%titleGen})
+_oosbktest.setelem(2) legend(Bloomberg Median)
+_oosbktest.setelem(3) legend(IAM Forecast)
+_oosbktest.legend columns(3)
+_oosbktest.setupdate(a) %data_proj-18 %data_proj
+
+'Out-Of-Sample Backtesting - All/Best/Seek
+smpl @all
+
+delete(noerr) _oosBkTestABS
+'call deleteIfExists("_oosBkTestABS")
+
+series {%iamFore} = MX_TRK::{%iamFore}
+smpl %data_proj %data_proj
+{%iamFore} = {%foreNameCb}
+smpl @all
+%firstDateFore = @otod(@ifirst({%iamFore}))
+%lastDateFore = @otod(@ilast({%iamFore}))
+%bbgSurvStr = %name + "_bbgsurv"
+series _tp_bbgSurv = MX_TRK::{%bbgSurvStr}
+smpl %firstDateFore %lastDateFore
+group _tp_oosGrABS {%depVar}_fore {%bbgSurvStr} {%iamForeSub}_All {%iamForeSub}_Best {%iamForeSub}_Seek
+freeze(_oosBkTestABS)  _tp_oosGrABS.line
+%titleOOS = "IAM Tracking " + %titleGen + ": Out-of-Sample Backtesting"
+_oosBkTestABS.addtext(t) %titleOOS
+_oosbktestABS.setelem(1) legend({%titleGen})
+_oosbktestABS.setelem(2) legend(Bloomberg Median)
+_oosbktestABS.setelem(3) legend(IAM Forecast All)
+_oosbktestABS.setelem(4) legend(IAM Forecast Best)
+_oosbktestABS.setelem(5) legend(IAM Forecast Seek)
+_oosbktestABS.setupdate(a) %data_proj-18 %data_proj
+
+_oosbktestABS.legend columns(5)
+
+delete(noerr) _TP_BBGSURV _TP_OOSGR _TP_OOSGRABS 
+'delete(noerr) _tp_*
+
+'Saving Graphs
+%savePath = %filePath + "Auxiliar\_montrackfr"
+_montrackfr.save(t=emf) %savePath
+%savePath = %filePath + "Auxiliar\_oosbktest"
+_oosbktest.save %savePath
+%savePath = %filePath + "Auxiliar\_oosbktestABS"
+_oosbktestABS.save %savePath
+
+'Unique Predictors - Tracking
+group _uniquePred {%uniquePredictors}
+
+smpl {%data_proj} {%data_proj} 
+
+save %fileAcc
+
+%filePath = @runpath
+%fileAcc = %filePath + %fileName
+close @wf
+wfuse %fileAcc
+
+include \\fswcorp\WMSASSET\ASSET\eco\Conjuntura\EViews\WFSUB\forecast_bundle.prg
+include Z:\ASSET\ECO\LATAM\MX\Trackings\infsetsproj.prg
+include Z:\ASSET\ECO\LATAM\MX\Codes\auxfuns.prg
+
+if @isobject("_vtgCount") = 0 then
+                scalar _vtgCount = 0
+endif
+
+'TESTAR
+!newTrk = 0
+if @isobject("_lastProj") then
+                if %data_proj <> _lastProj then
+                                !newTrk = 1
+                                delete _date_vtg*
+                                !vtgCount = 1
+                                %vtgStr = @str(_vtgCount) 
+                                %finalForecastStr1 = %name + "_finCb" + %data_proj + "_" + %vtgStr
+                                %finalForecastStr2 = %name + "_finCb" + %data_proj + "_" + %vtgStr
+                                series {%finalForecastStr1} = {%finalForecastStr2}
+                                store(d=MX_TRK) {%finalForecastStr1} 
+                endif
+endif
+
+if !newTrk = 1 then
+
+                                smpl @all
+                                _MONTRACKALL = NA
+                                _MONTRACKBEST = NA
+                                _MONTRACKSEEK = NA
+
+endif
+
+
+if @isobject("_projvars") then
+                table _projVars_m1 = _projvars
+                if !newTrk = 1 then
+                                for !i = 2 to _projvars_m1.@rows
+                                                _projvars_m1(!i,2) = 1
+                                next
+                endif
+endif
+
+smpl @all
+
+
+
+'Seasonality Plots
+
+wfuse "Z:\ASSET\ECO\LATAM\MX\Inflação\Seasonality\seasonality.wf1"
+
+pageselect bimonthly
+fetch MX_INPC_BW::id_*
+
+smpl @all
+series _months = @month
+
+'First Week Dummy
+series _week_aux = _months - _months(-1)
+series _firstbiweek = @recode(_week_aux = 0,0,1)
+smpl @first @first
+_firstbiweek = 1
+
+smpl @all
+delete _week_aux
+alpha _firstbiweek_alpha = @recode(_firstbiweek = 1,"1H","2H")
+alpha _month_alpha
+_month_alpha = @recode(_months = 1,"a.Jan",_month_alpha)
+_month_alpha = @recode(_months = 2,"b.Feb",_month_alpha)
+_month_alpha = @recode(_months = 3,"c.Mar",_month_alpha)
+_month_alpha = @recode(_months = 4,"d.Apr",_month_alpha)
+_month_alpha = @recode(_months = 5,"e.May",_month_alpha)
+_month_alpha = @recode(_months = 6,"f.Jun",_month_alpha)
+_month_alpha = @recode(_months = 7,"g.Jul",_month_alpha)
+_month_alpha = @recode(_months = 8,"h.Aug",_month_alpha)
+_month_alpha = @recode(_months = 9,"i.Sep",_month_alpha)
+_month_alpha = @recode(_months = 10,"j.Oct",_month_alpha)
+_month_alpha = @recode(_months = 11,"k.Nov",_month_alpha)
+_month_alpha = @recode(_months = 12,"l.Dec",_month_alpha)
+
+
+%idStr = "id_1_2_2_30"
+series {%idStr}_pc = @pc({%idStr})
+
+smpl 2010 @last
+
+delete(noerr) _grph_szbp_{%idStr}
+freeze(_grph_szbp_{%idStr}) {%idStr}_pc.boxplot across(@SERIES,iscale, iscalex, nodispname, label=auto, bincount=5)  within(_MONTH_alpha,cscale, cscalex, nodispname, label=auto, bincount=5)  within(_FIRSTBIWEEK_alpha,cscale, cscalex, nodispname, label=auto, bincount=5)
+_grph_szbp_{%idStr}.setupdate(a)
+%titleStr = "Inflation per Bi-week: " + %idStr
+_grph_szbp_{%idStr}.addtext(t) %titleStr
+
+alpha _labelsGraph
+
+series bwSeq = @mod(@trend,24)+1
+%lastDate = @otod(@ilast(id_0_0_0_0))
+smpl {%lastDate}+1 {%lastDate}+1
+!currBW = @max(bwSeq)
+
+'Forecasting Seasonality Suggestion
+smpl @all
+delete(noerr) *_pc
+%ids = @wlookup("id_*")
+for %var {%ids}
+                {%var} = @recode({%var}=0,NA,{%var})
+                series {%var}_pc = @pc({%var})
+next
+delete(noerr) __seasSuggest
+%discretList = "ID_1_1_1_17 ID_2_2_1_1 ID_2_2_1_2 ID_2_2_1_3 ID_2_2_1_4 ID_2_2_1_5 ID_2_2_2_2 ID_2_2_2_3 ID_2_2_2_4 ID_2_2_2_5 ID_2_2_2_6 ID_2_2_2_8 ID_1_2_2_3 ID_1_2_2_4 ID_1_2_2_6 ID_2_2_2_1 ID_2_2_2_9"
+table(@wcount(%discretList)+1,2) __seasSuggest
+__seasSuggest(1,1) = "ID_CODE"
+__seasSuggest(1,2) = "Seasonal Forecasting Suggestion (bps, mean of last 3 years)"
+!j = 2
+for %var {%discretList}
+                smpl 2013 @last
+                series _tp_seas = @recode(bwSeq =!currBW,{%var}_pc,NA)
+                !meanSeas = @mean(_tp_seas)
+                __seasSuggest(!j,1) = @word(%discretList,!j-1)
+                __seasSuggest(!j,2) = !meanSeas*100 'in bps
+                !j = !j+1
+next
+
+smpl 2010 @last
+
+pageselect monthly
+
+fetch MX_INPC_M::id_0_0_0_0
+
+
+
+subroutine checkPositive(series x)
+'Checks if series contains negative values
+                
+                %currSmpl = @pagesmpl
+                !allObs = x.@obs
+                smpl if (x > 0)
+                !posObs = x.@obs
+                if !allObs > !posObs then
+                                scalar _checkPositive = 0              
+                else
+                                scalar _checkPositive = 1
+                endif
+
+                smpl {%currSmpl}
+
+endsub
+
+subroutine adjustSA(series x)
+
+'Checks if series is positive and runs x13 with appropriate filter.
+'Marcelo: uso porque meu pc não roda o x12... =(
+'Pelo menos o x13 é mais recente.
+
+%currSmpl = @pagesmpl
+
+                if @isobject("_checkPositive") then
+                                delete _checkPositive
+                endif
+
+                call checkPositive(x)
+                if _checkPositive = 1 then
+                                x.x13(save="d11 d12")  @x11()
+                else
+                                x.x13(save="d11 d12")  @x11(mode=add)
+                endif
+
+                %name = x.@name
+                if @len(%name) > 16 then
+                                %name_d11 = %name + "_D11"
+                                %name_d12 = %name + "_D12"
+                                delete {%name_d11} {%name_d12}
+                                %name = @left(%name,16)
+                endif
+
+                %name_d11 = %name + "_D11"
+                %name_d12 = %name + "_D12"
+                %name_sa = %name + "_sa"
+                %name_tc = %name + "_tc"
+                
+                if @isobject(%name_sa) then
+                                delete {%name_sa}
+                endif
+
+                if @isobject(%name_tc) then
+                                delete {%name_tc}
+                endif
+
+                rename {%name_d11} {%name_sa}
+                rename {%name_d12} {%name_tc}
+
+                delete _checkPositive
+
+smpl %currSmpl
+
+endsub
+
+subroutine weightsMoving(series headNom, group subNom, series head, group sub)
+
+'Creates series of w_s for subcomponents of a headline using nominal series and then creates contributions series for real component
+
+smpl @all
+%subList = subNom.@members
+for %var {%subList}
+                series w_{%var} = {%var}/headNom
+next
+
+series _tp_head_pcy = @pcy(head)
+series _tp_head_pc = @pc(head)
+%groupList = sub.@members
+%pcList = ""
+%pcyList = ""
+for %var {%groupList}
+                series _tp_{%var}_pcy = @pcy({%var})
+                series _tp_{%var}_pc = @pc({%var})
+                %pcList = %pcList + " _tp_" + %var + "_pc"
+                %pcyList = %pcyList + " _tp_" + %var + "_pcy"
+next
+
+'Creates contributions, i.e., w_s x %change
+!i =1
+delete cont_*
+for %var {%groupList}
+                %subName = @word(%subList,!i)
+                series cont_{%var} = w_{%subName}*_tp_{%var}_pc
+                !i = !i +1
+next
+
+%headName = head.@name
+series {%headName}_pc = @pc(head)
+
+%contList = @wlookup("cont_*")
+group graphCont {%headName}_pc {%contList}
+!nSub = sub.@count
+%cmdStr = "stackedbar("
+for !i = 2 to !nSub+1
+                %cmdStr = %cmdStr + @str(!i) + ","
+next
+%cmdStr = @left(%cmdStr,@len(%cmdStr)-1)
+%cmdStr = %cmdStr + ")"
+graphCont.mixed {%cmdStr} line(1)
+
+table(!nSub,2) weightsLast
+!i = 1
+for %var {%subList}
+                !currw_ = @last(w_{%var})
+                table w_sLast(!i,1) = %var
+                table w_sLast(!i,2) = !currw_
+                !i = !i + 1
+next
+
+delete _tp*
+
+endsub
+
+subroutine weightsInc(series head, group sub)
+
+'Finds weights of sub-groups and calculates mean contributions by inferring weights with moving windows, with the smallest window possible.
+
+%currSmpl = @pagesmpl
+smpl {%currSmpl}
+
+series _tp_head_tr = @pc(head)
+%groupList = sub.@members
+%trList = ""
+for %var {%groupList}
+                series _tp_{%var}_tr = @pc({%var})
+                %trList = %trList + " _tp_" + %var + "_tr"
+next
+
+'Inferring weights
+%subMembs = sub.@members 
+for %subVar {%subMembs}
+                series w_{%subVar}
+next
+!nSub = sub.@count
+
+call firstDateGroup(sub)
+call lastDateGroup(sub)
+
+call pageFreq
+!dateValFirst = @dateval(%firstDateGroup)
+!dateValLast = @dateval(%lastDateGroup)
+!dateCheck = @dateadd(!dateValFirst,!nSub,%pageFreq)
+!dateStep = 0
+
+!estWindow = 5 'to do: determine optimal window
+
+while !dateValFirst < !dateValLast
+                smpl {%firstDateGroup}+!dateStep {%firstDateGroup}+!nSub+!dateStep+!estWindow 
+                equation _tp_eq_w.ls  _tp_head_tr {%trList}
+                smpl {%firstDateGroup}+!nSub+!dateStep {%firstDateGroup}+!nSub+!dateStep
+                !i = 1
+                for %subVar {%subMembs}
+                                w_{%subVar} = c(!i)
+                                !i = !i+1
+                next
+                !dateStep = !dateStep + 1
+                !dateValFirst = @dateadd(!dateValFirst,!dateStep,%pageFreq)
+wend
+
+
+''Contributions
+'delete(noerr) cont_*
+''Creates contributions, i.e., w_s x %change
+'!i =1
+'for %var {%groupList}
+'               series cont_{%var} = w_s(!i)*_tp_{%var}_pc
+'               !i = !i +1
+'next
+'
+'%headName = head.@name
+'series {%headName}_pc = @pc(head)
+'
+'%contList = @wlookup("cont_*")
+''group graphCont {%headName}_pc {%contList}
+'group graphCont {%contList}
+'
+'!nSub = sub.@count
+'%cmdStr = "stackedbar("
+'for !i = 1 to !nSub
+'               %cmdStr = %cmdStr + @str(!i) + ","
+'next
+'%cmdStr = @left(%cmdStr,@len(%cmdStr)-1)
+'%cmdStr = %cmdStr + ")"
+'
+'graphCont.mixed {%cmdStr}
+''graphCont.mixed {%cmdStr} line(1)
+
+delete _tp*
+
+endsub
+
+subroutine graphs_3612(series s, scalar !saDum)
+
+'Draws 3,6,12 graphs for series s.
+'!saDum = 1 if series are to be seasonally adjusted.
+
+%title = "3-6-12 (AR)"
+%serName = s.@name
+%serNameCalc = %serName
+
+if !saDum = 1 then
+                call adjustSA(s)
+                %serNameCalc = s.@name + "_sa"
+                %title = "3-6 (SAAR) 12 (AR)"
+endif
+
+series {%serName}_3 = (({%serNameCalc}/{%serNameCalc}(-3))^(12/3)-1)*100
+series {%serName}_6 = (({%serNameCalc}/{%serNameCalc}(-6))^(12/6)-1)*100
+series {%serName}_12 = ((s/s(-12))^(12/12)-1)*100
+
+group _temp_group_gr {%serName}_3 {%serName}_6 {%serName}_12
+%grphName = "_grph3612_" + %serName
+%grphName = @left(%grphName,23)
+if @isobject(%grphName) then
+                delete {%grphName}
+endif
+freeze({%grphName}) _temp_group_gr.line
+{%grphName}.setupdate(a)
+{%grphName}.addtext(0,-0.8,just(l)) {%title}
+{%grphName}.setelem(1) legend(3 (t/(t-3)))
+{%grphName}.setelem(2) legend(6 (t/(t-6)))
+{%grphName}.setelem(3) legend(12 (t/(t-12)))
+
+delete _temp_*
+
+endsub
+
+subroutine graphs_3612_sa(series s, series s_sa)
+
+'Draws 3,6,12 graphs for series s providing seasonally adjusted data.
+
+%title = "3-6 (SAAR) 12 (AR)"
+%serName = s.@name
+%serNameCalc = s_sa.@name
+
+series {%serName}_3_sa = (({%serNameCalc}/{%serNameCalc}(-3))^(12/3)-1)*100
+series {%serName}_6_sa = (({%serNameCalc}/{%serNameCalc}(-6))^(12/6)-1)*100
+series {%serName}_12 = ((s/s(-12))^(12/12)-1)*100
+
+group _temp_group_gr {%serName}_3_sa {%serName}_6_sa {%serName}_12
+%grphName = "_grph3612_" + %serName + "_sa"
+%grphName = @left(%grphName,23)
+if @isobject(%grphName) then
+                delete {%grphName}
+endif
+freeze({%grphName}) _temp_group_gr.line
+{%grphName}.setupdate(a)
+{%grphName}.addtext(0,-0.8,just(l)) {%title}
+{%grphName}.setelem(1) legend(3 (t/(t-3)))
+{%grphName}.setelem(2) legend(6 (t/(t-6)))
+{%grphName}.setelem(3) legend(12 (t/(t-12)))
+
+delete _temp_*
+
+endsub
+
+subroutine weightsInc2(series head, group sub,scalar !topCont)
+
+'Approximates weights of sub-groups and calculates mean contributions by inferring weights.
+'Temporary: uses a fixed and large window.
+
+!nSub = sub.@count
+if !topCont > !nSub then
+                !topCont = !nSub
+endif
+if !topCont < 1 then
+                !topCont = !nSub
+endif
+
+smpl @all
+
+series _tp_head_pcy = @pcy(head)
+series _tp_head_pc = @pc(head)
+%groupList = sub.@members
+%pcList = ""
+%pcyList = ""
+for %var {%groupList}
+                series _tp_{%var}_pcy = @pcy({%var})
+                series _tp_{%var}_pc = @pc({%var})
+                %pcList = %pcList + " _tp_" + %var + "_pc"
+                %pcyList = %pcyList + " _tp_" + %var + "_pcy"
+next
+
+'Inferring vector weights
+smpl 2012 @last 'ARBITRARY DATE
+equation _tp_eq_w.ls  _tp_head_pcy {%pcyList}
+smpl @all
+'Pool weights into vector
+vector(!nSub) _wtsInf
+for !i = 1 to !nSub
+                _wtsInf(!i) = c(!i)
+next
+
+'Creates scalars with w_s
+!counter = 2
+table(!nsub+1,2) _wtsInfTab
+_wtsInfTab(1,1) = "Weight"
+_wtsInfTab(1,2) = "Variable"
+for %var {%groupList}
+                scalar _tp_w_{%var} = c(!counter-1)
+                _wtsInfTab(!counter,1) = c(!counter-1)
+                _wtsInfTab(!counter,2) = %var
+                !counter = !counter + 1
+next
+
+delete cont_*
+'Creates approximate contributions, i.e., weight x %change
+!i =1
+for %var {%groupList}
+                series cont_{%var} = _wtsInf(!i)*_tp_{%var}_pc
+                !i = !i +1
+next
+'group cont_All cont_*
+'stom(cont_All,_tmpmatmean)
+'vector _tmpmeanscont = @cmeans(_tmpmatmean)
+'delete _tmpmatmean
+
+'DO: find top contributions
+
+%headName = head.@name
+series {%headName}_pc = @pc(head)
+
+%contList = @wlookup("cont_*")
+
+'group graphCont {%headName}_pc {%contList}
+group graphCont {%contList}
+
+!nSub = sub.@count
+%cmdStr = "stackedbar("
+for !i = 1 to !nSub
+                %cmdStr = %cmdStr + @str(!i) + ","
+next
+%cmdStr = @left(%cmdStr,@len(%cmdStr)-1)
+%cmdStr = %cmdStr + ")"
+
+graphCont.mixed {%cmdStr}
+'graphCont.mixed {%cmdStr} line(1)
+
+delete _tp*
+
+endsub
+
+subroutine firstDateGroup(group grp)
+
+'Finds First date from a group of series
+
+%serList = grp.@members
+!dateValFirst = -1*10^9
+for %var {%serList}
+                'call regressorNameTransf(%var) 'To do: include
+                %dateStr = @otod(@ifirst({%var}))
+                !dateVal = @dateval(%dateStr)
+                if !dateVal > !dateValFirst then
+                                !dateValFirst = !dateVal
+                endif
+next
+
+%firstDateGroup = @datestr(!dateValFirst)
+
+endsub
+
+subroutine LastDateGroup(group grp)
+
+'Finds Last date from a group of series
+
+%serList = grp.@members
+!dateValLast = -1*10^9
+for %var {%serList}
+                %dateStr = @otod(@ilast({%var}))
+                !dateVal = @dateval(%dateStr)
+                if !dateVal > !dateValLast then
+                                !dateValLast = !dateVal
+                endif
+next
+
+%lastDateGroup = @datestr(!dateValLast)
+
+endsub
+
+subroutine repmat(vector v)
+
+'To Do
+
+endsub
+
+subroutine pageFreq
+
+%pageFreq = @datestr(@now,"F")
+
+endsub
+
+subroutine normIndG(group inds, string %iniDate)
+
+'Normalizes groups to %iniDate = 100
+
+delete(noerr) _normtmp*
+
+%currSmpl = @pagesmpl
+
+%gname = inds.@name
+%membs = inds.@members
+for %var {%membs}
+
+                series _tmp_pch = @pch({%var})
+                smpl {%iniDate} {%iniDate}
+                series _norm_{%var} = 100
+                smpl {%iniDate}+1 @last
+                _norm_{%var} = _norm_{%var}(-1)*(1+_tmp_pch)
+                smpl @first {%iniDate}-1
+                for !i = 1 to 1000 'lazy solution
+                                _norm_{%var} = _norm_{%var}(+1)/(1+_tmp_pch)
+                next
+
+smpl {%currSmpl}
+next
+
+%normIndStr = @wlookup("_norm_*")
+
+%gNewName = "_" + %gname + "_norm"
+call deleteIfExists(%gNewName)
+group {%gNewName} {%normIndStr}
+delete _tmp*
+endsub
+
+subroutine normInd(series ind, string %iniDate)
+
+'Normalizes groups to %iniDate = 100
+
+%currSmpl = @pagesmpl
+
+                series _tmp_pch = @pch(ind)
+                smpl {%iniDate} {%iniDate}
+                series _normtmpind = 100
+                smpl {%iniDate}+1 @last
+                _normtmpind = _normtmpind(-1)*(1+_tmp_pch)
+                smpl @first {%iniDate}-1
+                for !i = 1 to 1000 'lazy solution
+                                _normtmpind = _normtmpind(+1)/(1+_tmp_pch)
+                next
+
+smpl {%currSmpl}
+
+%normIndStr = @wlookup("_normtmp*")
+%oriName = ind.@name
+%normName = "_norm" + %oriName
+call deleteIfExists(%normName)
+rename _normtmpind {%normName}
+
+delete _tmp*
+
+endsub
+
+subroutine weightedInd(group compnts, group weights, string %serName)
+
+'Creates a weighted series from compnts
+
+%currSmpl = @pagesmpl
+
+'Normalizing weights
+group weights_new
+for !i=1 to weights.@count                                     
+                %name = weights.@seriesname(!i)
+                %newname = %name + "_new"
+                call makeStringSafe(%newname)                      
+                series {%newname} = {%name}/@rsum(weights)                       
+                weights_new.add {%newname}                             
+next
+delete weights
+group weights weights_new
+delete weights_new
+
+%compntsMembs = compnts.@members
+%groupNames = ""
+for %var {%compntsMembs}
+                series _tp{%var} = @pch({%var})
+                %groupNames = %groupNames + " _tp" + %var
+next
+group deltas {%groupNames}
+
+series _weightedDeltas = 0
+for !i=1 to weights.@count                                                      
+                series _tpcurrWeight = weights(!i)      
+                series _tpcurrDelta = deltas(!i)                           
+                series _tptempSer = _tpcurrWeight*_tpcurrDelta                    
+                _weightedDeltas = _weightedDeltas + _tptempSer                           
+next
+
+call firstDateGroup(compnts)
+
+smpl {%currSmpl}
+call deleteIfExists(%serName)
+series {%serName} = 100
+smpl {%firstDateGroup}+1 @last
+series {%serName} = (1+_weightedDeltas)*{%serName}(-1)
+
+smpl {%currSmpl}
+
+delete _tp*
+
+endsub
+
+subroutine deleteIfExists(string %name)
+                if @isobject(%name) then
+                                delete %name
+                endif
+endsub
+
+subroutine local makeStringSafe(string %entry)
+                'makes a string safe for using it as a object name, removing invalid characters and triming it to the max allowable length (24 chars)
+                %result=""
+                for !i = 1 to @len(%entry)
+                                %letter = @mid(%entry,!i,1)
+                                !ascvalue=@asc(%letter)             
+                                if (!ascvalue >= 48 and !ascvalue<=57)                   or (!ascvalue=95)  or (!ascvalue >= 65 and !ascvalue<=90) or (!ascvalue >= 97 and !ascvalue<=122) then
+'numbers 48-57 'dash 95 'uppercase65-90 'lowercase97-122
+                                                'do nohting, maintain letter
+                                else
+                                                %letter="_"
+                                endif
+                %result=%result+%letter
+                next
+                %entry=@left(%result,24)
+endsub
+
+subroutine pc3m(series s)
+                
+logmode logmsg
+
+                %serName = s.@name
+                %newName3m = %serName + "_3m"
+                %newName3mann =   %serName + "_3mann"
+                call makeStringSafe(%newName3m)
+                call makeStringSafe(%newName3mann)
+                call deleteIfExists(%newName3m)
+                call deleteIfExists(%newName3mann)
+                series {%newName3m} = ((s/s(-3))-1)*100
+                series {%newName3mann} = (((s/s(-3))^4)-1)*100
+
+endsub
+
+subroutine pctm(series s, scalar !d)
+                
+                %dStr = @str(!d)
+                %serName = s.@name
+                %newNametm = %serName + "_" + %dStr + "m"
+                %newNametmann =   %serName + "_" + %dStr + "mann"
+                call makeStringSafe(%newNametm)
+                call makeStringSafe(%newNametmann)
+                call deleteIfExists(%newNametm)
+                call deleteIfExists(%newNametmann)
+                series {%newNametm} = ((s/s(-!d))-1)*100
+                series {%newNametmann} = (((s/s(-!d))^(12/!d))-1)*100
+
+endsub
+
+subroutine pctm_quarter(series s, scalar !d)
+                
+                %dStr = @str(!d)
+                %serName = s.@name
+                %newNametm = %serName + "_" + %dStr + "q"
+                %newNametmann =   %serName + "_" + %dStr + "qann"
+                call makeStringSafe(%newNametm)
+                call makeStringSafe(%newNametmann)
+                call deleteIfExists(%newNametm)
+                call deleteIfExists(%newNametmann)
+                series {%newNametm} = ((s/s(-!d))-1)*100
+                series {%newNametmann} = (((s/s(-!d))^(4/!d))-1)*100
+
+endsub
+
+subroutine pctmtopcy(series stmann, scalar !d)
+
+'To do: generalize
+
+'For 3m
+
+series _pcy = (1+stmann/100)^(!d/12)
+series _pcyTr = _pcy*_pcy(-3)*_pcy(-6)*_pcy(-(12-!d))
+_pcyTr = (_pcyTr-1)*100
+
+endsub
+
+subroutine invInd(series s)
+
+'Inverts an index mantaning underlying variation.
+
+%currSmpl = @pagesmpl
+%name = s.@name
+smpl @all
+series _tppc_{%name} = @pch(s)
+%firstDate = @otod(@ifirst(s))
+smpl %firstDate %firstDate
+%newName = %name + "_inv"
+call deleteIfExists(%newName)
+series {%newName} = s
+smpl %firstDate+1 @last
+{%newName} = {%newName}(-1)*(1-_tppc_{%name})
+smpl %currSmpl
+delete _tppc_*
+
+endsub
+
+
+subroutine maxDate(string %serList)
+
+'Returns maximum date from a list of series string names.
+
+                !date2 = 0
+                for %var {%serList}
+                                
+                                !date1 = !date2
+                                !date2 = @dateval(@otod(@ilast({%var})))
+                                                if !date1 >= !date2 then
+                                                                !date2 = !date1
+                                                endif
+                next
+
+%maxDateStr = @datestr(!date2)
+
+endsub
+
+subroutine minDate(string %serList)
+
+'Returns minimum date from a list of series string names.
+
+                !date2 = 9999999999999999
+                for %var {%serList}
+                                !date1 = !date2
+                                !date2 = @dateval(@otod(@ifirst({%var})))
+                                                if !date1 <= !date2 then
+                                                                !date2 = !date1
+                                                endif
+                next
+
+%minDateStr = @datestr(!date2)
+
+endsub
+
+subroutine minmaxDate(string %serList)
+
+call minDate(%serList)
+call maxDate(%serList)
+smpl %minDateStr %maxDateStr
+
+endsub
+
+subroutine maxVal(string %serList)
+
+'Returns maximum value for string of series name.
+                
+                !maxVal2 = -9999999999
+                for %var {%serList}
+                                !maxVal1 = !maxVal2
+                                !maxVal2 = @max({%var})
+                                                if !maxVal1 >= !maxVal2 then
+                                                                !maxVal2 = !maxVal1
+                                                endif
+                next
+
+!maxVal = !maxVal2
+
+endsub
+
+subroutine ytdVar(series x)
+
+%serName = x.@name
+series {%serName}_ytd = x
+
+call pageFreq
+if %pageFreq = "Q" then
+
+                {%serName}_ytd = @recode(@quarter=1,{%serName}_ytd,{%serName}_ytd+{%serName}_ytd(-1))
+
+endif
+
+if %pageFreq = "M" then
+
+                {%serName}_ytd = @recode(@month=1,{%serName}_ytd,{%serName}_ytd+{%serName}_ytd(-1))
+
+endif
+
+endsub
+
+subroutine termPlot(series x, string %name, string %grphTitle)
+
+'Plots different years as different time-Series.
+'X-Axis are Months/Quarters of the Year
+
+                %currSmpl = @pagesmpl
+                %groupName = "_trmgrp_" + %name
+                call makeStringSafe(%groupName)
+                %grphName = "_grph_" + %name
+                %serName = x.@name 
+
+                call pageFreq
+                
+                if %pageFreq ="Q" then
+                                !modFreq = 4
+                endif
+
+                if %pageFreq ="M" then
+                                !modFreq = 12
+                endif
+
+                'Current Date
+                !lastDate = @dateval(@otod(@ilast(x)))
+                %lastYear = @datestr(!lastDate,"yyyy")
+                !yearNum = @val(%lastYear)
+
+                group {%groupName} x
+
+                !nPlot = 6 'Number of terms to plot
+                for !i = 1 to !nPlot-1
+                                %currName = %serName + "_m" + @str(!i)
+                                series {%currName} =  x(-!modFreq*!i)
+                                group {%groupName} {%groupName} {%currName}
+                next
+                smpl %lastYear %lastYear
+                {%groupName}.line
+                call deleteIfExists(%grphName)
+                freeze({%grphName}) {%groupName}.line
+                for !i = 1 to !nPlot
+                                !yearLeg = !yearNum-!i+1
+                                {%grphName}.setelem(!i) legend(!yearLeg)
+                next
+                {%grphName}.setupdate(a)
+                {%grphName}.addtext(t,l) %grphTitle
+                {%grphName}.axis(bottom) -duallevel
+
+                call pageFreq
+                if %pageFreq=  "M" then
+                                {%grphName}.datelabel format("Mon")
+                endif
+                if %pageFreq=  "Q" then
+                                {%grphName}.datelabel format("QR")
+                endif
+                
+                close {%groupName}
+                smpl %currSmpl
+
+endsub
+
+subroutine barStackPerc(string %series, string %name)
+                                
+                                %currSmpl = @pagesmpl
+                                %grphName = "_grph_" + %name
+                                group _tp_group {%series}
+                                call propDataG(_tp_group)
+                                call deleteIfExists(%grphName)
+                                call minmaxDate(%series)
+                                freeze({%grphName}) _tp_group_pr.bar(s)
+                                smpl {%currSmpl}
+                                {%grphName}.options -barspace -outlinebars -outlinearea
+                                {%grphName}.setupdate(a)
+                                {%grphName}.axis(l) range(0,1) units(p)
+                                delete _tp_group _tp_group_pr
+
+endsub
+
+subroutine barStack(string %series, string %name)
+                                
+                                %grphName = "_grph_" + %name
+                                group _tp_group {%series}
+                                call deleteIfExists(%grphName)
+                                freeze({%grphName}) _tp_group.bar(s)
+                                {%grphName}.options -barspace -outlinebars -outlinearea
+                                {%grphName}.setupdate(a)
+                                call maxVal(%series)
+                                !maxVal = 1.5*!maxVal
+                                {%grphName}.axis(l) range(0,!maxVal)
+                                delete _tp_group
+
+endsub
+
+subroutine propData(series sub, series main)
+                
+                %subName = sub.@name
+                series {%subName}_pr = sub/main
+
+endsub
+
+subroutine propDataG(group subs)
+                
+%subsStr = subs.@members
+series _tp_main = @rsum(subs)
+%newNames = ""
+for %var {%subsStr}
+                
+                call propData({%var},_tp_main)
+                %newNames = %newNames + " " + %var + "_pr"
+
+next
+
+%groupName = subs.@name
+%newGroupName = %groupName + "_pr"
+group {%newGroupName} {%newNames}
+
+endsub
+
+subroutine checkNA(series s)
+
+'Checks if series contains all NAs.
+
+%currSmpl = @pagesmpl
+
+series _tp_check = @recode(s=NA,1,0)
+!checkNA = @min(_tp_check)
+!testNA = 0
+if !checkNA = 1 then
+                !testNA = 1
+endif
+
+delete _tp_*
+
+endsub
+
+subroutine checkZero(series s)
+
+'Checks if series contains a zero value.
+
+%currSmpl = @pagesmpl
+
+series _tp_check = @recode(s=0,1,0)
+!checkZero = @max(_tp_check)
+!testZero = 0
+if !checkZero = 1 then
+                !testZero = 1
+endif
+
+delete _tp_*
+'%dateFirst = @otod(@ifirst(s))
+'%dateLast = @otod(@ilast(s))
+'!dateFirstVal = @dateval(%dateFirst)
+'!dateLastVal = @dateval(%dateLast)
+'!diffDate = @datediff(!dateLastVal,!dateFirstVal,"mm")
+'!testZero = 0
+'!j = 0
+'while !currDateVal < !dateLastVal
+'               smpl {%dateFirst}+!j {%dateFirst}+!j
+'               !checkZero = @max(s)
+'               if !checkZero = 0               then
+'                               !testZero = 1
+'               endif
+'               !currDateVal = @dateadd(!dateFirstVal,!j,"mm")
+'               !j = !j + 1
+'wend
+'
+'smpl %currSmpl
+
+endsub
+
+subroutine multInd(series a, series b)
+
+'Manually creates indice variable reflecting the multiplication of two number indices a and b.
+
+%currSmpl = @pagesmpl
+
+%name1 = a.@name
+%name2 = b.@name
+%serName = "_mult" + %name1 + %name2
+call makeStringSafe(%serName)
+
+group _tp_grmultInds a b
+call firstDateGroup(_tp_grmultInds)
+series _tp_multInd_pc = (@pc(a)*@pc(b)/10000 + 1+@pch(a) + 1+@pch(b) - 2)
+smpl {%firstDateGroup} {%firstDateGroup}
+series {%serName} = 100
+smpl {%firstDateGroup}+1 @last
+{%serName} = {%serName}(-1)*(1+_tp_multInd_pc)
+
+smpl {%currSmpl}
+
+endsub
+
+subroutine adjustSAList(string serList)
+
+for %var {%serList}
+                call adjustSA({%var})
+next
+
+endsub
+
+subroutine linConv(series s, scalar !ss,scalar !nPeriod)
+                
+                'Creates variable trajectory which linearly converges to a desired value.
+                %serName = s.@name
+                %currSmpl= @pagesmpl
+                %lastObs = @otod(@ilast(s))
+                smpl {%lastObs} {%lastObs}
+                !ini = @max(s)
+                smpl {%currSmpl}            
+                series {%serName}_cv = s
+                smpl {%lastObs}+1 {%lastObs}+!nPeriod
+                !nObs_solSmpl = @obssmpl
+                {%serName}_cv = {%serName}_cv(-1)-((!ini-!ss)/!nObs_solSmpl)
+                smpl {%currSmpl}
+                
+endsub
+
+subroutine completeRE(series s)
+
+'Completes series s until end of sample by repeating last value.
+
+                %currsmpl = @pagesmpl
+                %lastDateSeries = @otod(@ilast(s))
+                smpl %lastDateSeries @last
+                s = s(-1)
+                smpl %currsmpl
+
+endsub
+
+subroutine stepwiseARMA
+
+'To do: stepwise regression with arma terms
+'colocar variaveis ar como defasagem manual (i.e. (-1)) que funciona o metodo make regressor group
+
+endsub
+
+subroutine lagGroup(group candidates, scalar !nLags)
+
+'Creates lags of series in group candidates and appends them to original group.
+
+!totCand = candidates.@count
+%groupList = candidates.@members
+delete(noerr) _lagsCand
+group _lagsCand
+
+for !l = 1 to !nLags
+                for %var {%groupList}
+                                %lagStr = @str(!l)
+                                %nameLag = %var + "_l" + %lagStr
+                                series {%nameLag} = {%var}(-!l)
+                                group _lagsCand _lagsCand {%nameLag}              
+                next
+next
+
+endsub
+
+subroutine transformationString(string %str)
+
+'Transforms string suitable for series name
+
+%str = @replace(%str,"D(","")
+%str = @replace(%str,"@MOVSUM(","")
+%str = @replace(%str,",4","") 'generalizar
+%str = @replace(%str,",3","") 'generalizar
+%str = @replace(%str,",2","") 'generalizar
+%str = @replace(%str,",1","") 'generalizar
+%str = @replace(%str,"@PCY(","")
+%str = @replace(%str,"@PC(","")
+%str =  @replace(%str,"@","")
+%str =  @replace(%str,"(","")
+%str =  @replace(%str,")","")
+
+endsub
+
+subroutine regressionContrib(equation eq)
+
+'Creates group with contributions of a specified equation.
+                
+                %currSmpl = @pagesmpl
+                %regression = eq.@name
+                smpl @all
+                delete(noerr) _tp_*
+                delete(noerr) _cr*
+                table _cont_{%regression}
+                vector _tp_coefs
+                _tp_coefs = {%regression}.@coefs
+                %regList = {%regression}.@varlist
+                {%regression}.makeregs  _tp_regs
+                %regNames = _tp_regs.@name
+                series _tp_depVar =  _tp_regs(1)
+
+                'Constant contribution
+                %contConsName = "_crCons"
+                !currCoef = _tp_coefs(1)
+                series {%contConsName} = !currCoef
+                %contList = %contConsName
+                %uniqueList = ""
+                %regressorList = ""
+
+                for !i = 2 to  _tp_regs.@count 'Start after dependent variable.
+                                
+                                %regressor = _tp_regs.@seriesname(!i)
+                                %regressorList = %regressorList + " " + %regressor
+                                series _regressor = _tp_regs(!i)
+                                !currCoef = _tp_coefs(!i)
+                                series _tp_cont = _regressor*!currCoef
+                                %regressorName = @replace(%regressor,"@","")
+                                %regressorName = @replace(%regressorName,"(","")
+                                %regressorName = @replace(%regressorName,"(","")
+                                %contName = "_cr" + %regressorName
+                                call makeStringSafe(%contName)
+                                series {%contName} = _regressor*!currCoef
+                                %contList = %contList + " " + %contName
+                                call regressorNameTransf(%regressor)
+                                %uniqueList = %uniqueList + " " + %regressor
+                                
+                next
+
+group _contReg_{%regression} {%contList}
+
+'Collapses contribution on lag dimension
+'To do: generalize for constant
+%collList = ""
+%uniqueList = @wunique(%uniqueList)
+for %uniVar {%uniqueList}
+                %collName = "_coll" + %uniVar
+                call makeStringSafe(%collName)
+                series {%collName} = 0
+                %collList = %collList + " " + %collName
+                for %regVar {%regressorList} 
+                                if @instr(%regVar,%uniVar) > 0 then
+                                                !coefPos = @wfind(%regList,%regVar)-1 'minus 1 since %regList has dependend variable
+                                                series _regressor = _tp_regs(!coefPos)
+                                                !lagCoef = _tp_coefs(!coefPos)
+                                                {%collName} = {%collName} + _regressor*!lagCoef
+                                endif
+                next
+next
+
+delete(noerr) _collLags
+group _collLags {%collList}
+delete(noerr) _tp_*
+smpl %currSmpl
+
+endsub
+
+subroutine regressorNameTransf(string %regName)
+
+'Removes transformation strings from a regressor name
+'E.g. @PC(x(-1)) -> x
+
+%regName = @replace(%regName,"@PCY(","")
+%regName = @replace(%regName,"@PC(","")
+'while !i < 10
+'               %strNum = @str(!i)
+'               %repString = "-" + %strNum
+'               %regName = @replace(%regName,%repString,"")
+'               !i = !i+1
+'wend
+%regName = @replace(%regName,"-10","")
+%regName = @replace(%regName,"-1","")
+%regName = @replace(%regName,"-2","")
+%regName = @replace(%regName,"-3","")
+%regName = @replace(%regName,"-4","")
+%regName = @replace(%regName,"-5","")
+%regName = @replace(%regName,"-6","")
+%regName = @replace(%regName,"-7","")
+%regName = @replace(%regName,"-8","")
+%regName = @replace(%regName,"-9","")
+%regName = @replace(%regName,"(","")
+%regName = @replace(%regName,")","")
+
+endsub
+
+subroutine contribGraph(series headline, group sub)
+
+'Creates contributions graph
+
+delete(noerr) _tp_graphContrib
+group _tp_graphContrib headline sub
+!nSub = sub.@count
+%cmdStr = "stackedbar("
+for !i = 2 to !nSub+1
+                %cmdStr = %cmdStr + @str(!i) + ","
+next
+%cmdStr = @left(%cmdStr,@len(%cmdStr)-1)
+%cmdStr = %cmdStr + ")"
+_tp_graphContrib.mixed {%cmdStr} line(1)
+delete(noerr) _contribGraphOut
+freeze(_contribGraphOut) _tp_graphContrib.mixed {%cmdStr} line(1)
+_contribGraphOut.setelem(1) linecolor(@rgb(0,0,0)) linewidth(5)
+_contribGraphOut.legend columns(5)
+_contribGraphOut.setupdate(a)
+close _tp_graphContrib
+
+endsub
+
+subroutine pcBM(series s)
+                %serName = "pc_" + s.@name
+                series {%serName} = (s - s(-1))/s(-1)
+endsub
+
+subroutine pcyBM(series s)
+                %serName = "pcy_" + s.@name
+                series {%serName} = (s - s(-24))/s(-24)
+endsub
+
+subroutine createAutoTransfString(string %string)
+
+'Creates an auto-series name from transformation created variable.
+'Example: CPI_PCY_L2 > @PCY(CPI(-2))
+
+                if @instr(%string,"_L") then
+                                
+                                !pos = @instr(%string,"_L")
+                                %number = @mid(%string,!pos+2,1)
+                                %repString = "_L" + %number
+                                %lagString = "(-" + %number + ")"
+                                %string = @replace(%string,%repString,%lagString)
+                
+                endif
+                if @instr(%string,"_PCY") then
+                                
+                                %string = @replace(%string,"_PCY","")
+                                %string = "@PCY(" + %string + ")"
+                
+                endif
+                if @instr(%string,"_PC") then
+                                
+                                %string = @replace(%string,"_PC","")
+                                %string = "@PC(" + %string + ")"
+                
+                endif
+                if @instr(%string,"_4Q") then
+                                
+                                %string = @replace(%string,"_4Q","")
+                                %string = "@MOVSUM(" + %string + ",4)"
+                
+                endif
+
+endsub
+
+subroutine roundManual(series s, scalar !decimals)
+
+'Rounds series s to !decimals decimals places.
+
+series s = @round(s*10^!decimals)/10^!decimals
+
+endsub
+
+subroutine standardize(series s)
+
+'Creates standardized variable of s
+
+%varName = s.@name
+
+series {%varName}_std = (s-@mean(s))/@stdev(s)
+
+endsub
+
+subroutine normStd(series s, string %refDate)
+
+'Normalizes series s to represent standardized deviations from a reference date %refDate = 0.
+
+%currSmpl = @pagesmpl
+
+%serName = s.@name
+
+'Normalizing {%refDate} = 0
+smpl @all
+series _sdev_{%serName} = s
+!std = @stdev(_sdev_{%serName})
+smpl {%refDate} {%refDate}
+_sdev_{%serName} = 0
+smpl @all
+_sdev_{%serName}= (_sdev_{%serName} - 0)/!std
+
+smpl %currSmpl
+
+endsub
+
+subroutine foreGraph(series s, string %title, string %dateFirst, string %dateLast)
+
+'Creates graph for forecasted variable drawing shaded region appropriately
+
+                %serName = s.@name
+                %grphName = "_grph_" + %serName
+                smpl {%dateFirst}-4 {%dateLast}
+                delete(noerr) {%grphName}
+                freeze({%grphName}) s.line
+                {%grphName}.addtext(t,just(c)) %title
+                {%grphName}.draw(shade, bottom) {%dateFirst} {%dateLast}
+
+endsub
+
+subroutine hamiltonFilter(series s, scalar !h, scalar !p)
+
+%lagsStr = ""
+
+for !l = !h to !h+!p-1
+                %lagsStr = %lagsStr + " s(-" + @str(!l) + ")"
+next
+
+%serName = s.@name
+equation _tp_hamFilt.ls s c {%lagsStr} 
+smpl @all
+_tp_hamfilt.forecast(g) {%serName}_hamfilt_trend
+series {%serName}_hamfilt_cyc = s - {%serName}_hamfilt_trend
+
+delete _tp_*
+
+endsub
+
+subroutine hpTail(series s)
+
+'Performs HP Filter extending original time-series with forecasts to attenuate tail estimates
+
+%date = @otod(@ilast(s))
+%serName = s.@name
+%currsmpl = @pagesmpl
+
+equation _tp_hpcorr.ls s c s(-1) s(-2) s(-3) s(-4)
+smpl {%date}+1 {%date}+9
+_tp_hpcorr.forecast(e, g) {%serName}_hp_aux
+smpl @all 'to do: sample first date currsmpl {%date}+9
+{%serName}_hp_aux.hpf {%serName}_hp_tc
+
+delete _tp_*
+endsub
+
+subroutine clearBeta
+
+' "Clears" the default coefficient vector 'c'
+
+for !i = 1 to 750
+
+                c(!i) = 1 
+
+next
+
+endsub
+
+subroutine eqEstModel(equation eq, scalar !firstCoef)
+
+'Transforms an estimated equation into Ad-Hoc model equation.
+'Useful to play with coefficients
+
+%regressors = eq.@esteq
+%vars = eq.@varlist
+!nReg = @wcount(%vars)-1
+coef(!nReg) _tp_coefs
+_tp_coefs = eq.@coefs
+%equationString = @wordq(%vars,1)
+%coefStr = "C(" + @str(!firstCoef) + ")"
+%equationString = %equationString + " = " + %coefStr
+!firstCoef = !firstCoef + 1
+for !i = 3 to !nReg+1
+                %coefStr = "C(" + @str(!firstCoef) + ")"
+                %currVar = @wordq(%vars,!i)
+                %equationString = %equationString + " + " + %coefStr + "*" + %currVar
+                !firstCoef = !firstCoef + 1
+next   
+
+logmode logmsg
+logmsg %equationString
+delete _tp_*
+
+endsub
+
+subroutine choleskiMat(scalar !dim)
+
+'Creates Choleski matrices to be used with VAR of dimension !dim
+
+delete(noerr) id_choleski_A_tri id_choleski_B
+
+matrix(!dim,!dim) id_choleski_A_tri
+matrix(!dim,!dim) id_choleski_B
+for !i = 1 to !dim
+                for !j = 1 to !dim
+                                if !i > !j then
+                                                id_choleski_A_tri(!i,!j) = na
+                                                id_choleski_B(!i,!j) = 0
+                                endif
+                                if !i = !j then
+                                                id_choleski_A_tri(!i,!j) = 1
+                                                id_choleski_B(!i,!j) = na
+                                endif
+                                if !i < !j then
+                                                id_choleski_A_tri(!i,!j) = 0
+                                                id_choleski_B(!i,!j) = 0
+                                endif
+                next
+next
+
+endsub
+
+subroutine scalarSeries(string %scalarNames,string %serName)
+
+'Creates {%serName} series formed by scalars {%scalarNames} in the order named in the string.
+'Ignores dates.
+'Returns sample from the beginning to the end of created series.
+                
+                %currsmpl = @pagesmpl
+                smpl @all
+
+                call deleteIfExists(%serName)
+                series {%serName} = NA
+                !j=0
+                for %var {%scalarNames}
+                                smpl @first+!j @first+!j
+                                {%serName} = {%var}
+                                !j=!j+1
+                next
+
+                'smpl %currSmpl
+                smpl @first @first+!j-1
+
+endsub
+
+subroutine freqNum
+
+'Returns the period of sample frequency.
+'E.g. Annual data -> 12, Quarterly Data -> 4, etc...
+
+!freqNum = @datepart(@dateval("2001-12-31"), "p")
+
+endsub
+
+subroutine checkOneNA(series s)
+
+'Checks if series contains at least one NA in current sample.
+
+%currSmpl = @pagesmpl
+series _tp_checkOneNA = @recode(s=NA,1,0)
+!testOneNA = @sum(_tp_checkOneNA)
+if !testOneNA >= 1 then
+                !testOneNA = 1
+endif
+delete _tp_*
+
+endsub
+
+subroutine fillNABack(series x, string %dateLast)
+
+'Samples workfile from first NA observation of x to %dateLast if possible.
+
+%naDate = @otod(@ilast(x))
+!naDateVal = @dateval(%naDate)
+!dateProjVal = @dateval(%dateLast)
+!dNAChange = 0
+if !naDateVal < !dateProjVal then
+                !dNAChange = 1
+                !diffDate = @datediff(!dateProjVal,!naDateVal,"MM")
+                smpl {%naDate}+1 {%naDate}+!diffDate
+endif 
+
+endsub
+
+subroutine hellerFI(series R, series G, series nomY)
+
+nomY.hpf _heller_nomYpot
+series _heller_r0 =  R(-1)/nomY(-1)
+series _heller_g0 =  G(-1)/nomY(-1)
+series _heller_fs = (_heller_r0*nomY - R) - (_heller_g0*_heller_nomYpot - G)
+series _heller_fs_12m = @movsum(_heller_fs,12)
+series _heller_fs_12mgdp = _heller_fs_12m/@movsum(nomY,12)
+series _heller_fi_gdp = ( _heller_fs-_heller_fs(-1))/nomY
+
+endsub
+
+subroutine freqConv(series s,scalar !oriFreq,scalar !newFreq,series oriSeries)
+
+'Converts series s from delta frequency !oriFreq to delta frequency !newFreq
+
+'E.g. x/x(-3) to x/x(-12) or x/x(-12) to x/x(-1)
+
+%currSmpl = @pagesmpl
+%firstDate = @otod(@ifirst(s))
+%lastDate = @otod(@ilast(s))
+
+%firstDateLev = @otod(@ifirst(oriSeries))
+
+delete(noerr) _tp*
+series _tp_level = NA
+smpl %firstDateLev {%firstDateLev}+!oriFreq-1
+_tp_level = oriSeries
+smpl %firstDate %lastDate
+_tp_level = _tp_level(-!oriFreq)*(1+s/100)
+
+smpl @all
+
+%serName = s.@name
+%newName = %serName + "_" + @str(!newFreq) + "fq"
+delete(noerr) {%newName}
+series {%newName} = (_tp_level/_tp_level(-!newFreq)-1)*100
+
+series {%serName}_levfq = _tp_level
+
+delete(noerr) _tp*
+
+smpl %currSmpl
+
+endsub
+
+
+
+Marcelo Jardim Sena*
+
+Itaú Unibanco
+WMS | Asset Management | Economic Research and Strategy
+Av. Brigadeiro Faria Lima, 3500 – 4th floor
+Sao Paulo SP, 04538 132 
+Phone: +55 11 3631 2763
+marcelo.jardim-sena@itau-unibanco.com.br
+
+*This employee is an associated person of Itaú USA Asset Management (“IUAM”), a US SEC registered investment adviser. SEC regulations are applicable only to clients, prospects and investors of IUAM.
+
